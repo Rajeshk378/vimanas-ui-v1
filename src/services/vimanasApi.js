@@ -196,4 +196,5 @@ class VimanasApiService {
   }
 }
 
-export default new VimanasApiService();
+const vimanasApiService = new VimanasApiService();
+export default vimanasApiService;

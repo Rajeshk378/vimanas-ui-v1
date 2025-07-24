@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Container,
   Paper,
@@ -15,7 +15,6 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  Alert,
   IconButton,
   Avatar,
 } from '@mui/material';
@@ -28,9 +27,7 @@ import {
   Stop as StopIcon,
   Code as CodeIcon,
   Psychology as PsychologyIcon,
-  AccessTime as AccessTimeIcon,
   Send as SendIcon,
-  Close as CloseIcon,
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -42,7 +39,6 @@ const InterviewRoom = () => {
   
   // Video and Audio refs
   const localVideoRef = useRef(null);
-  const aiAvatarRef = useRef(null);
   const questionAudioRef = useRef(null);
   const responseAudioRef = useRef(null);
   const mediaStreamRef = useRef(null);
@@ -55,7 +51,7 @@ const InterviewRoom = () => {
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [totalDuration, setTotalDuration] = useState(3600); // 60 minutes default
   const [currentSkill, setCurrentSkill] = useState('general');
-  const [skillTransitionTime, setSkillTransitionTime] = useState(600); // 10 minutes per skill
+  const [skillTransitionTime] = useState(600); // 10 minutes per skill
   
   // Audio/Video controls
   const [isMuted, setIsMuted] = useState(false);
@@ -66,7 +62,6 @@ const InterviewRoom = () => {
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [candidateAnswer, setCandidateAnswer] = useState('');
   const [interviewTranscript, setInterviewTranscript] = useState([]);
-  const [aiResponse, setAiResponse] = useState('');
   
   // Coding test
   const [showCodingTest, setShowCodingTest] = useState(false);
@@ -81,6 +76,32 @@ const InterviewRoom = () => {
   // Interview session data
   const [sessionData, setSessionData] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  const initializeInterview = async () => {
+    try {
+      setLoading(true);
+      
+      // Initialize media devices
+      await initializeMediaDevices();
+      
+      // Initialize speech recognition
+      initializeSpeechRecognition();
+      
+      // Load interview session data
+      if (interviewId !== 'new') {
+        const response = await vimanasApi.getInterviewSession(interviewId);
+        setSessionData(response.data);
+        setTotalDuration(response.data.duration * 60);
+      }
+      
+      toast.success('Interview room initialized successfully!');
+    } catch (error) {
+      console.error('Error initializing interview:', error);
+      toast.error('Error initializing interview room');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     initializeInterview();
@@ -111,29 +132,35 @@ const InterviewRoom = () => {
     return () => clearInterval(interval);
   }, [interviewStarted, interviewEnded, skillTransitionTime, totalDuration]);
 
-  const initializeInterview = async () => {
+  const transitionToNextSkill = async (currentTime) => {
     try {
-      setLoading(true);
+      const response = await vimanasApi.getNextSkillForTimeSlot(interviewId || 'demo', currentTime);
+      const nextSkill = response.data.nextSkill;
       
-      // Initialize media devices
-      await initializeMediaDevices();
-      
-      // Initialize speech recognition
-      initializeSpeechRecognition();
-      
-      // Load interview session data
-      if (interviewId !== 'new') {
-        const response = await vimanasApi.getInterviewSession(interviewId);
-        setSessionData(response.data);
-        setTotalDuration(response.data.duration * 60);
+      if (nextSkill && nextSkill !== currentSkill) {
+        setCurrentSkill(nextSkill);
+        toast.info(`Transitioning to ${nextSkill} questions`);
       }
-      
-      toast.success('Interview room initialized successfully!');
     } catch (error) {
-      console.error('Error initializing interview:', error);
-      toast.error('Error initializing interview room');
-    } finally {
-      setLoading(false);
+      console.error('Error transitioning skills:', error);
+    }
+  };
+
+  const checkPhaseTransition = (currentTime) => {
+    const progress = currentTime / totalDuration;
+    
+    if (progress > 0.8 && currentPhase !== 'closing') {
+      setCurrentPhase('closing');
+    } else if (progress > 0.6 && currentPhase !== 'negotiation' && sessionData?.includesOfferNegotiation) {
+      setCurrentPhase('negotiation');
+      initiateOfferNegotiation();
+    } else if (progress > 0.4 && currentPhase !== 'coding' && sessionData?.includesCodingTest) {
+      setCurrentPhase('coding');
+      initiateCodingTest();
+    } else if (progress > 0.3 && currentPhase !== 'behavioral') {
+      setCurrentPhase('behavioral');
+    } else if (progress > 0.1 && currentPhase !== 'technical') {
+      setCurrentPhase('technical');
     }
   };
 
@@ -295,38 +322,6 @@ const InterviewRoom = () => {
     } catch (error) {
       console.error('Error submitting answer:', error);
       toast.error('Error processing your answer');
-    }
-  };
-
-  const transitionToNextSkill = async (currentTime) => {
-    try {
-      const response = await vimanasApi.getNextSkillForTimeSlot(interviewId || 'demo', currentTime);
-      const nextSkill = response.data.nextSkill;
-      
-      if (nextSkill && nextSkill !== currentSkill) {
-        setCurrentSkill(nextSkill);
-        toast.info(`Transitioning to ${nextSkill} questions`);
-      }
-    } catch (error) {
-      console.error('Error transitioning skills:', error);
-    }
-  };
-
-  const checkPhaseTransition = (currentTime) => {
-    const progress = currentTime / totalDuration;
-    
-    if (progress > 0.8 && currentPhase !== 'closing') {
-      setCurrentPhase('closing');
-    } else if (progress > 0.6 && currentPhase !== 'negotiation' && sessionData?.includesOfferNegotiation) {
-      setCurrentPhase('negotiation');
-      initiateOfferNegotiation();
-    } else if (progress > 0.4 && currentPhase !== 'coding' && sessionData?.includesCodingTest) {
-      setCurrentPhase('coding');
-      initiateCodingTest();
-    } else if (progress > 0.3 && currentPhase !== 'behavioral') {
-      setCurrentPhase('behavioral');
-    } else if (progress > 0.1 && currentPhase !== 'technical') {
-      setCurrentPhase('technical');
     }
   };
 
